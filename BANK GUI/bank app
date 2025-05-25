@@ -1,0 +1,707 @@
+import json
+import os
+import datetime
+import csv
+import hashlib
+import traceback
+from tkinter import *
+from tkinter import messagebox, ttk
+import random
+
+# ================== Constants ==================
+DATA_FILE = "accounts.json"
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD_HASH = hashlib.sha256("admin123".encode()).hexdigest()
+BANK_NAME = "Bharath Bank"
+IFSC_CODE = "BHAR0" + str(os.urandom(3).hex())[:5].upper()
+DATE_FORMAT = "%Y-%m-%d"
+INACTIVE_DAYS_THRESHOLD = 180
+
+DEPOSIT_INTEREST_RATES = {
+    "Savings": 4.5,
+    "Current": 1.5
+}
+
+LOAN_INTEREST_RATES = {
+    "Savings": 12.0,
+    "Current": 10.5
+}
+
+MIN_BALANCE = {
+    "Savings": 1000,
+    "Current": 5000
+}
+
+DAILY_WITHDRAWAL_LIMIT = 50000
+DAILY_DEPOSIT_LIMIT = 100000
+# ================================================
+
+def load_data():
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+                for acc in data:
+                    # Initialize missing fields with defaults
+                    acc.setdefault('daily_withdrawal', 0)
+                    acc.setdefault('daily_deposit', 0)
+                    acc.setdefault('last_withdrawal_date', datetime.datetime.now().strftime(DATE_FORMAT))
+                    acc.setdefault('last_deposit_date', datetime.datetime.now().strftime(DATE_FORMAT))
+                    acc.setdefault('last_active', datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+                return data
+        return []
+    except Exception as e:
+        messagebox.showerror("Load Error", f"Failed to load data: {str(e)}")
+        return []
+
+def save_data(data):
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4, default=str)
+    except Exception as e:
+        messagebox.showerror("Save Error", f"Failed to save data: {str(e)}")
+
+def hash_pin(pin):
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+def clear_window():
+    for widget in win.winfo_children():
+        widget.destroy()
+
+def generate_unique_account_number():
+    data = load_data()
+    existing = {acc["acno"] for acc in data}
+    while True:
+        acc_no = ''.join(str(random.randint(0,9)) for _ in range(12))
+        if acc_no not in existing: 
+            return acc_no
+
+def main_window():
+    clear_window()
+    Label(win, text=BANK_NAME, font="Arial 24 bold", fg="#004aad").pack(pady=5)
+    Label(win, text=f"IFSC: {IFSC_CODE}", font="Arial 10 italic", fg="#666666").pack()
+    Label(win, text="Welcome to BB", font="Arial 16 bold").pack(pady=20)
+    
+    for (text, cmd) in [
+        ("Customer Login", customer_login_window),
+        ("Open Account", open_account_window),
+        ("Admin Login", admin_login_window),
+        ("Exit", win.quit)
+    ]:
+        Button(win, text=text, font="Arial 14", width=22, command=cmd, 
+               bg="#004aad", fg="white", activebackground="#003080").pack(pady=8)
+
+def open_account_window():
+    clear_window()
+    Label(win, text="Open New Account", font="Arial 18 bold").pack(pady=10)
+    
+    fields = [
+        ("Name", Entry(win)), 
+        ("Aadhar Number (12 digits)", Entry(win)),
+        ("Age (≥18)", Entry(win)), 
+        ("Phone Number (10 digits)", Entry(win)),
+        ("Email ID", Entry(win)), 
+        ("PIN (4 digits)", Entry(win, show="*")),
+        ("Initial Balance", Entry(win))
+    ]
+    
+    for label, entry in fields:
+        Label(win, text=label).pack()
+        entry.pack()
+    
+    gender_var = StringVar(value="Male")
+    Label(win, text="Gender").pack()
+    for g in ["Male", "Female", "Other"]:
+        Radiobutton(win, text=g, variable=gender_var, value=g).pack()
+    
+    acc_type = StringVar(value="Savings")
+    Label(win, text="Account Type").pack()
+    for t in ["Savings", "Current"]:
+        Radiobutton(win, text=t, variable=acc_type, value=t).pack()
+
+    def create_account():
+        try:
+            inputs = [field[1].get().strip() for field in fields[:-1]]
+            name, aadhar, age, phone, email, pin = inputs
+            balance = float(fields[6][1].get())
+            selected_type = acc_type.get()
+            
+            if not name: 
+                raise ValueError("Name required")
+            if len(aadhar) != 12 or not aadhar.isdigit(): 
+                raise ValueError("Invalid Aadhar")
+            if int(age) < 18: 
+                raise ValueError("Minimum age 18")
+            if len(phone) != 10 or not phone.isdigit(): 
+                raise ValueError("Invalid phone")
+            if "@" not in email: 
+                raise ValueError("Invalid email")
+            if len(pin) != 4: 
+                raise ValueError("Invalid PIN")
+            if balance < MIN_BALANCE[selected_type]: 
+                raise ValueError(f"Minimum ₹{MIN_BALANCE[selected_type]} required")
+            
+            acc_no = generate_unique_account_number()
+            new_acc = {
+                "acno": acc_no, 
+                "name": name, 
+                "aadhar": aadhar,
+                "gender": gender_var.get(), 
+                "age": int(age), 
+                "phone": phone,
+                "email": email, 
+                "pin_hash": hash_pin(pin), 
+                "balance": balance,
+                "type": selected_type, 
+                "loans": [], 
+                "transactions": [{
+                    "type": "account_opened", 
+                    "amount": balance,
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                }], 
+                "credit_card": {"limit": 10000, "due": 0},
+                "last_active": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "daily_withdrawal": 0, 
+                "last_withdrawal_date": datetime.datetime.now().strftime(DATE_FORMAT),
+                "daily_deposit": 0, 
+                "last_deposit_date": datetime.datetime.now().strftime(DATE_FORMAT)
+            }
+            
+            data = load_data()
+            data.append(new_acc)
+            save_data(data)
+            messagebox.showinfo("Success", f"Account created!\nAccount Number: {acc_no}")
+            main_window()
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Create Account", bg="#007a00", fg="white", command=create_account).pack(pady=10)
+    Button(win, text="Back", command=main_window).pack()
+
+def customer_login_window():
+    clear_window()
+    Label(win, text="Customer Login", font="Arial 18 bold").pack(pady=10)
+    
+    acc_entry = Entry(win)
+    Label(win, text="Account Number").pack()
+    acc_entry.pack()
+    
+    pin_entry = Entry(win, show="*")
+    Label(win, text="PIN").pack()
+    pin_entry.pack()
+
+    def login():
+        try:
+            acc_no = acc_entry.get()
+            pin = pin_entry.get()
+            
+            if len(acc_no) != 12 or not acc_no.isdigit(): 
+                raise ValueError("Invalid account")
+            if len(pin) != 4: 
+                raise ValueError("Invalid PIN")
+            
+            data = load_data()
+            for acc in data:
+                if acc["acno"] == acc_no and acc["pin_hash"] == hash_pin(pin):
+                    acc["last_active"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    save_data(data)
+                    customer_panel_window(acc)
+                    return
+            
+            raise ValueError("Invalid credentials")
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Login", bg="#007a00", fg="white", command=login).pack(pady=10)
+    Button(win, text="Back", command=main_window).pack()
+
+def customer_panel_window(account):
+    clear_window()
+    Label(win, text=f"Welcome {account['name']}", font="Arial 18 bold").pack(pady=10)
+    
+    for text, cmd in [
+        ("Check Balance", lambda: messagebox.showinfo("Balance", f"₹{account['balance']:.2f}")),
+        ("Deposit", lambda: deposit_window(account)), 
+        ("Withdraw", lambda: withdraw_window(account)),
+        ("Loan", lambda: loan_window(account)), 
+        ("Credit Card", lambda: credit_card_window(account)),
+        ("Transactions", lambda: transaction_window(account)), 
+        ("Logout", main_window)
+    ]:
+        Button(win, text=text, width=20, bg="#004aad", fg="white", command=cmd).pack(pady=5)
+
+def deposit_window(account):
+    clear_window()
+    Label(win, text="Deposit Amount", font="Arial 18 bold").pack(pady=10)
+    
+    current_date = datetime.datetime.now().strftime(DATE_FORMAT)
+    remaining = DAILY_DEPOSIT_LIMIT - account['daily_deposit'] if account['last_deposit_date'] == current_date else DAILY_DEPOSIT_LIMIT
+    
+    Label(win, text=f"Daily Limit: ₹{DAILY_DEPOSIT_LIMIT}").pack()
+    Label(win, text=f"Remaining Today: ₹{remaining}").pack()
+    
+    amount_entry = Entry(win)
+    amount_entry.pack()
+
+    def process_deposit():
+        try:
+            amount = float(amount_entry.get())
+            current_date = datetime.datetime.now().strftime(DATE_FORMAT)
+            
+            if account['last_deposit_date'] != current_date:
+                account['daily_deposit'] = 0
+                account['last_deposit_date'] = current_date
+            
+            if account['daily_deposit'] + amount > DAILY_DEPOSIT_LIMIT:
+                remaining = DAILY_DEPOSIT_LIMIT - account['daily_deposit']
+                raise ValueError(f"Exceeds limit by ₹{amount - remaining:.2f}")
+            
+            if amount <= 0: 
+                raise ValueError("Invalid amount")
+            
+            account["balance"] += amount
+            account["daily_deposit"] += amount
+            account["transactions"].append({
+                "type": "deposit", 
+                "amount": amount,
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            
+            update_account_data(account)
+            messagebox.showinfo("Success", 
+                f"Deposited ₹{amount:.2f}\nRemaining limit: ₹{DAILY_DEPOSIT_LIMIT - account['daily_deposit']:.2f}")
+            customer_panel_window(account)
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Deposit", bg="#007a00", fg="white", command=process_deposit).pack(pady=10)
+    Button(win, text="Back", command=lambda: customer_panel_window(account)).pack()
+
+def withdraw_window(account):
+    clear_window()
+    Label(win, text="Withdraw Amount", font="Arial 18 bold").pack(pady=10)
+    
+    current_date = datetime.datetime.now().strftime(DATE_FORMAT)
+    remaining = DAILY_WITHDRAWAL_LIMIT - account['daily_withdrawal'] if account['last_withdrawal_date'] == current_date else DAILY_WITHDRAWAL_LIMIT
+    
+    Label(win, text=f"Daily Limit: ₹{DAILY_WITHDRAWAL_LIMIT}").pack()
+    Label(win, text=f"Remaining Today: ₹{remaining}").pack()
+    Label(win, text=f"Min Balance: ₹{MIN_BALANCE[account['type']]}").pack()
+    
+    amount_entry = Entry(win)
+    amount_entry.pack()
+
+    def process_withdraw():
+        try:
+            amount = float(amount_entry.get())
+            current_date = datetime.datetime.now().strftime(DATE_FORMAT)
+            
+            if account['last_withdrawal_date'] != current_date:
+                account['daily_withdrawal'] = 0
+                account['last_withdrawal_date'] = current_date
+            
+            if account['daily_withdrawal'] + amount > DAILY_WITHDRAWAL_LIMIT:
+                remaining = DAILY_WITHDRAWAL_LIMIT - account['daily_withdrawal']
+                raise ValueError(f"Exceeds limit by ₹{amount - remaining:.2f}")
+            
+            if account["balance"] - amount < MIN_BALANCE[account["type"]]:
+                raise ValueError(f"Minimum balance ₹{MIN_BALANCE[account['type']]} required")
+            
+            account["balance"] -= amount
+            account["daily_withdrawal"] += amount
+            account["transactions"].append({
+                "type": "withdraw", 
+                "amount": amount,
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            
+            update_account_data(account)
+            messagebox.showinfo("Success", 
+                f"Withdrew ₹{amount:.2f}\nRemaining limit: ₹{DAILY_WITHDRAWAL_LIMIT - account['daily_withdrawal']:.2f}")
+            customer_panel_window(account)
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Withdraw", bg="#a00000", fg="white", command=process_withdraw).pack(pady=10)
+    Button(win, text="Back", command=lambda: customer_panel_window(account)).pack()
+
+def loan_window(account):
+    clear_window()
+    Label(win, text="Loan Application", font="Arial 18 bold").pack(pady=10)
+    
+    rate = LOAN_INTEREST_RATES[account["type"]]
+    Label(win, text=f"Account Type: {account['type']}").pack()
+    Label(win, text=f"Interest Rate: {rate}% p.a.").pack()
+    
+    fields = [
+        ("Loan Amount (₹)", Entry(win)), 
+        ("Term (months)", Entry(win))
+    ]
+    
+    for label, entry in fields:
+        Label(win, text=label).pack()
+        entry.pack()
+
+    def calculate_emi():
+        try:
+            principal = float(fields[0][1].get())
+            months = int(fields[1][1].get())
+            rate = LOAN_INTEREST_RATES[account["type"]]
+            monthly_rate = rate / 12 / 100
+            emi = (principal * monthly_rate * (1 + monthly_rate)**months) / ((1 + monthly_rate)**months - 1)
+            
+            messagebox.showinfo("EMI", 
+                f"Amount: ₹{principal:,.2f}\n"
+                f"Tenure: {months} months\n"
+                f"Rate: {rate}%\n"
+                f"Monthly EMI: ₹{emi:,.2f}")
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    def apply_loan():
+        try:
+            principal = float(fields[0][1].get())
+            months = int(fields[1][1].get())
+            rate = LOAN_INTEREST_RATES[account["type"]]
+            
+            if principal <= 0 or months <= 0: 
+                raise ValueError("Invalid values")
+            
+            monthly_rate = rate / 12 / 100
+            emi = (principal * monthly_rate * (1 + monthly_rate)**months) / ((1 + monthly_rate)**months - 1)
+            
+            account["loans"].append({
+                "amount": principal, 
+                "term": months, 
+                "rate": rate,
+                "emi": round(emi,2), 
+                "start_date": datetime.datetime.now().strftime(DATE_FORMAT)
+            })
+            
+            account["balance"] += principal
+            account["transactions"].append({
+                "type": "loan", 
+                "amount": principal,
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "rate": f"{rate}% p.a."
+            })
+            
+            update_account_data(account)
+            messagebox.showinfo("Approved", 
+                f"Loan: ₹{principal:,.2f}\n"
+                f"Tenure: {months} months\n"
+                f"Rate: {rate}%\n"
+                f"Monthly EMI: ₹{emi:,.2f}")
+            
+            customer_panel_window(account)
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Calculate EMI", bg="#004aad", fg="white", command=calculate_emi).pack(pady=5)
+    Button(win, text="Apply Loan", bg="#007a00", fg="white", command=apply_loan).pack(pady=10)
+    Button(win, text="Back", command=lambda: customer_panel_window(account)).pack()
+
+def credit_card_window(account):
+    clear_window()
+    Label(win, text="Credit Card", font="Arial 18 bold").pack(pady=10)
+    
+    card = account["credit_card"]
+    Label(win, text=f"Credit Limit: ₹{card['limit']}").pack()
+    Label(win, text=f"Current Due: ₹{card['due']}").pack()
+    
+    amount_entry = Entry(win)
+    Label(win, text="Amount to Use").pack()
+    amount_entry.pack()
+
+    def use_credit():
+        try:
+            amount = float(amount_entry.get())
+            
+            if amount <= 0 or (card['due'] + amount) > card['limit']: 
+                raise ValueError("Invalid amount")
+            
+            card['due'] += amount
+            account["transactions"].append({
+                "type": "credit_used", 
+                "amount": amount,
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            
+            update_account_data(account)
+            messagebox.showinfo("Success", f"Used ₹{amount:.2f} credit")
+            credit_card_window(account)
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    def pay_due():
+        try:
+            if account["balance"] < card['due']: 
+                raise ValueError("Insufficient balance")
+            
+            account["balance"] -= card['due']
+            card['due'] = 0
+            account["transactions"].append({
+                "type": "credit_payment", 
+                "amount": card['due'],
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            
+            update_account_data(account)
+            messagebox.showinfo("Success", "Due paid")
+            credit_card_window(account)
+        except Exception as e: 
+            messagebox.showerror("Error", str(e))
+
+    Button(win, text="Use Credit", bg="#004aad", fg="white", command=use_credit).pack(pady=5)
+    Button(win, text="Pay Due", bg="#007a00", fg="white", command=pay_due).pack(pady=5)
+    Button(win, text="Back", command=lambda: customer_panel_window(account)).pack()
+
+def transaction_window(account):
+    clear_window()
+    Label(win, text="Transaction History", font="Arial 18 bold").pack(pady=10)
+    
+    cols = ("Date", "Type", "Amount", "Details")
+    tree = ttk.Treeview(win, columns=cols, show="headings")
+    
+    for col in cols:
+        tree.heading(col, text=col)
+        tree.column(col, width=120)
+    
+    tree.pack(expand=True, fill="both")
+    
+    for txn in reversed(account["transactions"]):
+        details = ""
+        if txn["type"] == "interest": 
+            details = f"Rate: {txn.get('rate', '')}"
+        elif txn["type"] == "loan": 
+            details = f"Rate: {txn.get('rate', '')}"
+        
+        tree.insert("", "end", values=(
+            txn["date"], 
+            txn["type"].capitalize(),
+            f"₹{txn['amount']:.2f}", 
+            details
+        ))
+    
+    Button(win, text="Back", command=lambda: customer_panel_window(account)).pack(pady=5)
+
+def update_account_data(account):
+    data = load_data()
+    for i, acc in enumerate(data):
+        if acc["acno"] == account["acno"]:
+            data[i] = account
+            break
+    save_data(data)
+
+def admin_login_window():
+    clear_window()
+    Label(win, text="Admin Login", font="Arial 18 bold").pack(pady=10)
+    
+    username_entry = Entry(win)
+    Label(win, text="Username").pack()
+    username_entry.pack()
+    
+    password_entry = Entry(win, show="*")
+    Label(win, text="Password").pack()
+    password_entry.pack()
+
+    def login():
+        username = username_entry.get()
+        password = password_entry.get()
+        
+        if (username == ADMIN_USERNAME and 
+            hashlib.sha256(password.encode()).hexdigest() == ADMIN_PASSWORD_HASH):
+            admin_panel_window()
+        else: 
+            messagebox.showerror("Error", "Invalid credentials")
+
+    Button(win, text="Login", bg="#004aad", fg="white", command=login).pack(pady=10)
+    Button(win, text="Back", command=main_window).pack()
+
+def admin_panel_window():
+    clear_window()
+    Label(win, text="Admin Panel", font="Arial 18 bold").pack(pady=10)
+    
+    for text, cmd in [
+        ("View All Accounts", view_all_accounts_window),
+        ("Apply Interest", apply_monthly_interest),
+        ("Delete Inactive Accounts", delete_inactive_accounts),
+        ("Delete Account", delete_account_window),
+        ("Export Data", export_to_csv),
+        ("Logout", main_window)
+    ]:
+        Button(win, text=text, width=25, bg="#004aad", fg="white", command=cmd).pack(pady=5)
+
+def view_all_accounts_window():
+    clear_window()
+    Label(win, text="All Accounts", font="Arial 18 bold").pack(pady=10)
+    
+    cols = ("Account No", "Name", "Balance", "Type", "Interest Rate", "Last Active")
+    tree = ttk.Treeview(win, columns=cols, show="headings")
+    
+    for col in cols:
+        tree.heading(col, text=col)
+        tree.column(col, width=100)
+    
+    tree.pack(expand=True, fill="both")
+    
+    data = load_data()
+    for acc in data:
+        rate = f"{DEPOSIT_INTEREST_RATES[acc['type']]}%" if acc["type"] in DEPOSIT_INTEREST_RATES else "N/A"
+        
+        tree.insert("", "end", values=(
+            acc["acno"], 
+            acc["name"], 
+            f"₹{acc['balance']:.2f}",
+            acc["type"], 
+            rate, 
+            acc.get('last_active', 'N/A')
+        ))
+    
+    Button(win, text="Back", command=admin_panel_window).pack(pady=5)
+
+def apply_monthly_interest():
+    data = load_data()
+    today = datetime.datetime.now()
+    
+    for acc in data:
+        if acc["type"] in DEPOSIT_INTEREST_RATES:
+            rate = DEPOSIT_INTEREST_RATES[acc["type"]]
+            monthly_rate = rate / 12 / 100
+            interest = acc["balance"] * monthly_rate
+            
+            acc["balance"] += interest
+            acc["transactions"].append({
+                "type": "interest", 
+                "amount": interest,
+                "date": today.strftime("%Y-%m-%d %H:%M"),
+                "rate": f"{rate}% p.a."
+            })
+    
+    save_data(data)
+    messagebox.showinfo("Success", 
+        f"Interest Applied:\n"
+        f"Savings: {DEPOSIT_INTEREST_RATES['Savings']}%\n"
+        f"Current: {DEPOSIT_INTEREST_RATES['Current']}%")
+    
+    admin_panel_window()
+
+def delete_inactive_accounts():
+    try:
+        data = load_data()
+        original_count = len(data)
+        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=INACTIVE_DAYS_THRESHOLD)
+        
+        active_accounts = []
+        deleted_accounts = []
+        
+        for acc in data:
+            last_active = datetime.datetime.strptime(acc["last_active"], "%Y-%m-%d %H:%M")
+            if last_active >= cutoff_date:
+                active_accounts.append(acc)
+            else:
+                deleted_accounts.append(acc["acno"])
+        
+        save_data(active_accounts)
+        message = (f"Deleted {len(deleted_accounts)} inactive accounts\n"
+                  f"Remaining accounts: {len(active_accounts)}\n"
+                  f"Deleted Account Numbers:\n" + "\n".join(deleted_accounts[:10]))
+        
+        if len(deleted_accounts) > 10:
+            message += f"\n...and {len(deleted_accounts)-10} more"
+        
+        messagebox.showinfo("Cleanup Complete", message)
+    except Exception as e:
+        messagebox.showerror("Deletion Error", str(e))
+    finally:
+        admin_panel_window()
+
+def delete_account_window():
+    clear_window()
+    Label(win, text="Delete Account", font="Arial 18 bold").pack(pady=10)
+    
+    acc_entry = Entry(win)
+    Label(win, text="Account Number").pack()
+    acc_entry.pack()
+
+    def confirm_delete():
+        acc_no = acc_entry.get()
+        data = load_data()
+        
+        for i, acc in enumerate(data):
+            if acc["acno"] == acc_no:
+                del data[i]
+                save_data(data)
+                messagebox.showinfo("Success", "Account deleted")
+                admin_panel_window()
+                return
+        
+        messagebox.showerror("Error", "Account not found")
+
+    Button(win, text="Delete", bg="#a00000", fg="white", command=confirm_delete).pack(pady=10)
+    Button(win, text="Back", command=admin_panel_window).pack()
+
+def export_to_csv():
+    try:
+        data = load_data()
+        if not data:
+            messagebox.showwarning("No Data", "No accounts to export")
+            return
+        
+        filename = f"bank_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filepath = os.path.abspath(filename)
+
+        with open(filepath, "w", newline="", encoding='utf-8') as f:
+            writer = csv.writer(f)
+            # Write header
+            writer.writerow([
+                "Account No", "Name", "Aadhar", "Gender", "Age",
+                "Phone", "Email", "Balance", "Account Type", 
+                "Interest Rate", "Last Active", "Inactive Days"
+            ])
+            
+            # Write data rows with error handling
+            success_count = 0
+            for acc in data:
+                try:
+                    last_active = datetime.datetime.strptime(acc["last_active"], "%Y-%m-%d %H:%M")
+                    inactive_days = (datetime.datetime.now() - last_active).days
+                    
+                    writer.writerow([
+                        str(acc.get("acno", "")),
+                        str(acc.get("name", "")),
+                        str(acc.get("aadhar", "")),
+                        str(acc.get("gender", "")),
+                        str(acc.get("age", "")),
+                        str(acc.get("phone", "")),
+                        str(acc.get("email", "")),
+                        f"{float(acc.get('balance', 0)):.2f}",
+                        str(acc.get("type", "")),
+                        str(DEPOSIT_INTEREST_RATES.get(acc.get("type", ""), "N/A")),
+                        str(acc.get("last_active", "")),
+                        str(inactive_days)
+                    ])
+                    success_count += 1
+                except Exception as acc_error:
+                    print(f"Error exporting account {acc.get('acno','UNKNOWN')}: {str(acc_error)}")
+            
+            message = (f"Successfully exported {success_count}/{len(data)} accounts\n"
+                    f"Saved to: {filepath}")
+            
+            if success_count < len(data):
+                message += f"\nFailed to export {len(data)-success_count} records (check console)"
+            
+            messagebox.showinfo("Export Complete", message)
+    except Exception as e:
+        error_msg = f"Export failed: {str(e)}\n\nTechnical details:\n{traceback.format_exc()}"
+        messagebox.showerror("Export Error", error_msg)
+    finally:
+        admin_panel_window()
+
+# Main application
+win = Tk()
+win.title(BANK_NAME)
+win.geometry("500x600")
+win.resizable(False, False)
+main_window()
+win.mainloop()

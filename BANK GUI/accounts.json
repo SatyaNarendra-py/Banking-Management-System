@@ -1,0 +1,77 @@
+[
+    {
+        "acno": "479699225583",
+        "name": "satya",
+        "aadhar": "121212121212",
+        "gender": "Male",
+        "age": 20,
+        "phone": "1111111111",
+        "email": "n@gmail.com",
+        "pin_hash": "0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c",
+        "balance": 10037.5,
+        "type": "Savings",
+        "loans": [],
+        "transactions": [
+            {
+                "type": "account_opened",
+                "amount": 10000.0,
+                "date": "2025-05-23 20:24"
+            },
+            {
+                "type": "interest",
+                "amount": 37.5,
+                "date": "2025-05-24 11:17",
+                "rate": "4.5% p.a."
+            }
+        ],
+        "credit_card": {
+            "limit": 10000,
+            "due": 0
+        },
+        "last_active": "2025-05-23 20:25",
+        "daily_withdrawal": 0,
+        "last_withdrawal_date": "2025-05-23",
+        "daily_deposit": 0,
+        "last_deposit_date": "2025-05-23"
+    },
+    {
+        "acno": "845072979066",
+        "name": "Satya A",
+        "aadhar": "963496349634",
+        "gender": "Male",
+        "age": 21,
+        "phone": "7702443525",
+        "email": "nnn@gmail.com",
+        "pin_hash": "caa43aab9927357204b62b1c076f712a3ba2749086feb6dca6b7f9faab2f01e0",
+        "balance": 1003.75,
+        "type": "Savings",
+        "loans": [],
+        "transactions": [
+            {
+                "type": "account_opened",
+                "amount": 10000.0,
+                "date": "2025-05-24 10:33"
+            },
+            {
+                "type": "withdraw",
+                "amount": 9000.0,
+                "date": "2025-05-24 11:16"
+            },
+            {
+                "type": "interest",
+                "amount": 3.75,
+                "date": "2025-05-24 11:17",
+                "rate": "4.5% p.a."
+            }
+        ],
+        "credit_card": {
+            "limit": 10000,
+            "due": 0
+        },
+        "last_active": "2025-05-24 11:16",
+        "daily_withdrawal": 9000.0,
+        "last_withdrawal_date": "2025-05-24",
+        "daily_deposit": 0,
+        "last_deposit_date": "2025-05-24"
+    }
+]
